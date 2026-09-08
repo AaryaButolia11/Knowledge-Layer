@@ -138,6 +138,8 @@ async function boot() {
   renderFacts();
   loadDocList();
   moveTabIndicator();
+  if ($(".tab[data-tab='graph']")?.classList.contains("is-active"))
+    renderGraph();
 }
 
 function animateCount(el, to) {
@@ -401,6 +403,141 @@ async function upload(file) {
   }
 }
 
+/* ---------------------------------------------------------------- graph */
+const EDGE_COLOR = {
+  corroborate: "#38b98a",
+  contradict: "#e75c53",
+  reconciled: "#e2a53f",
+};
+let NETWORK = null;
+
+function graphNodeLabel(f) {
+  const v = (f.value_raw || "").toString();
+  const m = (f.metric || "").toString();
+  return v + (m ? `\n${m.length > 26 ? m.slice(0, 24) + "…" : m}` : "");
+}
+function renderGraph() {
+  const el = $("#graph-canvas");
+  if (!el || typeof vis === "undefined") return;
+  if (!RELS.length) {
+    el.innerHTML = `<p class="empty" style="padding:24px">No relationships yet — add a PDF to grow the graph.</p>`;
+    return;
+  }
+  el.innerHTML = "";
+  const nodes = new Map();
+  const edges = [];
+  RELS.forEach((r) => {
+    [r.a, r.b].forEach((f) => {
+      if (!nodes.has(f.id)) {
+        nodes.set(f.id, {
+          id: f.id,
+          label: graphNodeLabel(f),
+          shape: "box",
+          margin: 8,
+          color: {
+            background: "#1c2333",
+            border: "#3a4560",
+            highlight: { background: "#232c48", border: "#5a72c4" },
+          },
+          font: {
+            color: "#e8ecf5",
+            size: 12,
+            face: "Inter, sans-serif",
+            multi: false,
+          },
+          title: `${f.metric || ""} · ${f.period || "period n/a"} · ${f.doc_name || ""} p${(f.page ?? 0) + 1}`,
+        });
+      }
+    });
+    edges.push({
+      from: r.a.id,
+      to: r.b.id,
+      color: {
+        color: EDGE_COLOR[r.type] || "#888",
+        highlight: EDGE_COLOR[r.type] || "#aaa",
+      },
+      width: r.type === "contradict" ? 3 : 1.6,
+      dashes: r.type === "reconciled",
+      title: r.explanation || "",
+      smooth: { type: "continuous" },
+    });
+  });
+  const data = {
+    nodes: new vis.DataSet([...nodes.values()]),
+    edges: new vis.DataSet(edges),
+  };
+  const options = {
+    physics: {
+      solver: "barnesHut",
+      barnesHut: {
+        gravitationalConstant: -4200,
+        springLength: 150,
+        springConstant: 0.03,
+      },
+      stabilization: { iterations: 150 },
+    },
+    interaction: { hover: true, tooltipDelay: 100, navigationButtons: false },
+    layout: { improvedLayout: true },
+  };
+  if (NETWORK) {
+    NETWORK.destroy();
+    NETWORK = null;
+  }
+  NETWORK = new vis.Network(el, data, options);
+}
+
+/* ------------------------------------------------------------------ ask */
+function appendChat(role, text, pending = false) {
+  const log = $("#ask-log");
+  if (!log) return null;
+  const el = document.createElement("div");
+  el.className = `chat-msg chat-${role}${pending ? " pending" : ""}`;
+  el.innerHTML = `<div class="chat-bubble">${esc(text)}</div>`;
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+  return el;
+}
+function resolveChat(text, sources) {
+  const log = $("#ask-log");
+  const pending = log?.querySelector(".chat-msg.pending");
+  if (!pending) return;
+  pending.classList.remove("pending");
+  const srcHtml =
+    sources && sources.length
+      ? `<div class="chat-sources">${sources
+          .map(
+            (s) =>
+              `<span class="src-chip">${esc(s.doc_name)} · p${(s.page ?? 0) + 1}</span>`,
+          )
+          .join("")}</div>`
+      : "";
+  pending.querySelector(".chat-bubble").innerHTML =
+    esc(text).replace(/\n/g, "<br>") + srcHtml;
+  log.scrollTop = log.scrollHeight;
+}
+async function askQuestion(question) {
+  appendChat("user", question);
+  appendChat("assistant", "Thinking…", true);
+  try {
+    const res = await fetch("/api/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    }).then((r) => r.json());
+    resolveChat(res.answer || "No answer returned.", res.sources || []);
+  } catch (e) {
+    resolveChat("Something went wrong reaching the server — try again.", []);
+  }
+}
+$("#ask-form")?.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const input = $("#ask-input");
+  const q = (input?.value || "").trim();
+  if (!q) return;
+  input.value = "";
+  askQuestion(q);
+});
+
 /* ---------------------------------------------------------------- wiring */
 function moveTabIndicator() {
   const active = $(".tab.is-active");
@@ -435,7 +572,13 @@ function setFilter(f) {
   renderRels();
 }
 
-$$(".tab").forEach((t) => (t.onclick = () => setTab(t.dataset.tab)));
+$$(".tab").forEach(
+  (t) =>
+    (t.onclick = () => {
+      setTab(t.dataset.tab);
+      if (t.dataset.tab === "graph") renderGraph();
+    }),
+);
 $$(".chip").forEach((c) => (c.onclick = () => setFilter(c.dataset.filter)));
 $$(".tile[data-filter]").forEach(
   (t) =>

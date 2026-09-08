@@ -45,11 +45,14 @@ class TableCell:
 class Doc:
     doc_id: str
     name: str
-    n_pages: int
+    n_pages: int           # total pages in the source PDF
     lines: List[Line]
     tables: List[TableCell]
     vintage: str          # best-effort publication date (YYYY-MM-DD) or ""
     path: str
+    pages_processed: int = 0    # how many pages were actually scanned
+    is_truncated: bool = False  # True if max_pages cut the scan short
+    truncation_note: str = ""
 
 
 _DATE_RE = re.compile(
@@ -81,28 +84,43 @@ def _doc_id(path: str) -> str:
     return f"d_{h}"
 
 
-def ingest(path: str) -> Doc:
+def ingest(path: str, max_pages: Optional[int] = None) -> Doc:
+    """
+    max_pages caps how many pages are scanned (e.g. "first 20 pages" from the
+    UI). None / 0 means scan every page. Each page's line/table extraction is
+    wrapped so one malformed page (a scan artifact, a broken table) can never
+    abort ingestion of the rest of the document.
+    """
     name = os.path.basename(path)
     d = pymupdf.open(path)
+    total_pages = d.page_count
+    scan_upto = total_pages if not max_pages else min(max_pages, total_pages)
+
     lines: List[Line] = []
     tables: List[TableCell] = []
     pages_text: List[str] = []
 
-    for pno in range(d.page_count):
-        page = d[pno]
-        pd = page.get_text("dict")
-        page_txt = []
-        for block in pd.get("blocks", []):
-            for ln in block.get("lines", []):
-                txt = "".join(s["text"] for s in ln["spans"]).strip()
-                if not txt:
-                    continue
-                x0, y0, x1, y1 = ln["bbox"]
-                lines.append(Line(pno, [x0, y0, x1, y1], txt, y0))
-                page_txt.append(txt)
-        pages_text.append("\n".join(page_txt))
+    for pno in range(scan_upto):
+        try:
+            page = d[pno]
+            pd = page.get_text("dict")
+            page_txt = []
+            for block in pd.get("blocks", []):
+                for ln in block.get("lines", []):
+                    txt = "".join(s["text"] for s in ln["spans"]).strip()
+                    if not txt:
+                        continue
+                    x0, y0, x1, y1 = ln["bbox"]
+                    lines.append(Line(pno, [x0, y0, x1, y1], txt, y0))
+                    page_txt.append(txt)
+            pages_text.append("\n".join(page_txt))
+        except Exception as e:
+            # this page is unreadable (corrupt stream, odd encoding, ...) —
+            # skip it, keep going, don't lose the rest of the document
+            print(f"[ingest] page {pno} text extraction failed, skipping: {e}")
+            pages_text.append("")
 
-        # tables (best-effort; skipped silently if the finder fails)
+        # tables (best-effort; skipped silently if the finder fails on this page)
         try:
             found = page.find_tables()
             for t in found.tables:
@@ -124,7 +142,13 @@ def ingest(path: str) -> Doc:
             pass
 
     vintage = _guess_vintage(pages_text)
-    return Doc(_doc_id(path), name, d.page_count, lines, tables, vintage, path)
+    is_truncated = scan_upto < total_pages
+    note = (f"Scanned first {scan_upto} of {total_pages} pages; "
+            f"{total_pages - scan_upto} page(s) not processed."
+            if is_truncated else "")
+    return Doc(_doc_id(path), name, total_pages, lines, tables, vintage, path,
+              pages_processed=scan_upto, is_truncated=is_truncated,
+              truncation_note=note)
 
 
 def render_evidence_crop(path: str, page: int, bbox: List[float],

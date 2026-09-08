@@ -126,6 +126,8 @@
       </button>
       <button class="tab" data-tab="documents">Annotated documents</button>
       <button class="tab" data-tab="facts">Facts</button>
+      <button class="tab" data-tab="graph">Graph</button>
+      <button class="tab" data-tab="ask">Ask</button>
       <span class="tab-indicator" id="tab-indicator" aria-hidden="true"></span>
     </nav>
 
@@ -171,7 +173,108 @@
         />
         <div id="fact-list" class="fact-list"></div>
       </section>
+
+      <!-- GRAPH -->
+      <section class="panel" data-view="graph" hidden>
+        <p class="doc-hint">
+          Every fact that takes part in a relationship, as a physics graph.
+          Green edges corroborate, red edges contradict, amber (dashed) edges
+          are reconciled. Drag nodes, hover an edge for the reasoning, scroll to
+          zoom.
+        </p>
+        <div id="graph-canvas"></div>
+      </section>
+
+      <!-- ASK -->
+      <section class="panel" data-view="ask" hidden>
+        <p class="doc-hint">
+          Ask a question in plain English — answered from the ingested PDFs' own
+          text, with (document, page) citations. Retrieval only, no outside
+          knowledge.
+        </p>
+        <div id="ask-log" class="ask-log"></div>
+        <form id="ask-form" class="ask-form">
+          <input
+            id="ask-input"
+            class="search"
+            autocomplete="off"
+            placeholder="e.g. What was FY24 revenue and does it agree across documents?"
+          />
+          <button type="submit" class="dl-btn">Ask</button>
+        </form>
+      </section>
     </main>
+
+    <style>
+      #graph-canvas {
+        width: 100%;
+        height: 70vh;
+        min-height: 420px;
+        border-radius: 12px;
+        background: var(--panel, #12172a);
+        border: 1px solid var(--border, #2a3350);
+      }
+      .ask-log {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-height: 60vh;
+        overflow-y: auto;
+        padding: 4px 2px 14px;
+      }
+      .chat-msg {
+        display: flex;
+      }
+      .chat-user {
+        justify-content: flex-end;
+      }
+      .chat-assistant {
+        justify-content: flex-start;
+      }
+      .chat-bubble {
+        max-width: 80%;
+        padding: 10px 14px;
+        border-radius: 14px;
+        line-height: 1.45;
+        font-size: 0.95rem;
+        white-space: pre-wrap;
+      }
+      .chat-user .chat-bubble {
+        background: var(--accent, #3a6df0);
+        color: #fff;
+        border-bottom-right-radius: 4px;
+      }
+      .chat-assistant .chat-bubble {
+        background: var(--panel, #1c2333);
+        border: 1px solid var(--border, #2a3350);
+        border-bottom-left-radius: 4px;
+      }
+      .chat-msg.pending .chat-bubble {
+        opacity: 0.6;
+        font-style: italic;
+      }
+      .chat-sources {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      .src-chip {
+        font-size: 0.72rem;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid var(--border, #2a3350);
+      }
+      .ask-form {
+        display: flex;
+        gap: 8px;
+        margin-top: 4px;
+      }
+      .ask-form .search {
+        flex: 1;
+      }
+    </style>
 
     <div id="tooltip" class="tooltip" hidden></div>
     <div
@@ -185,6 +288,7 @@
       <span>Heuristic extractor.</span>
     </footer>
 
+    <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

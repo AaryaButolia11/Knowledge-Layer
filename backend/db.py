@@ -42,6 +42,11 @@ CREATE TABLE IF NOT EXISTS relationships (
 );
 CREATE INDEX IF NOT EXISTS idx_facts_key ON facts(metric_key);
 CREATE INDEX IF NOT EXISTS idx_rel_type ON relationships(type);
+CREATE TABLE IF NOT EXISTS chunks (
+    id TEXT PRIMARY KEY, doc_id TEXT, doc_name TEXT, page INT,
+    chunk_idx INT, text TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_chunks_doc ON chunks(doc_id);
 """
 
 
@@ -60,6 +65,14 @@ class Store:
         self.conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         with self._lock:
+            # WAL lets /api/evidence & /api/facts readers proceed while an
+            # upload is writing facts — readers no longer block on the writer's
+            # transaction the way the default rollback-journal mode would.
+            try:
+                self.conn.execute("PRAGMA journal_mode=WAL;")
+                self.conn.execute("PRAGMA synchronous=NORMAL;")
+            except sqlite3.OperationalError:
+                pass  # e.g. path on a filesystem that doesn't support WAL
             self.conn.executescript(SCHEMA)
             self.conn.commit()
 
@@ -129,6 +142,26 @@ class Store:
         with self._lock:
             return [r["metric_key"] for r in self.conn.execute(
                 "SELECT DISTINCT metric_key FROM facts")]
+
+    # ---------------------------------------------------------------- chunks #
+    def add_chunks(self, chunks: List[Dict[str, Any]]):
+        """chunks: dicts with id, doc_id, doc_name, page, chunk_idx, text."""
+        if not chunks:
+            return
+        with self._lock:
+            for c in chunks:
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO chunks VALUES (?,?,?,?,?,?)",
+                    (c["id"], c["doc_id"], c["doc_name"], c["page"],
+                     c["chunk_idx"], c["text"]))
+            self.conn.commit()
+
+    def chunks(self, doc_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        q, args = "SELECT * FROM chunks", []
+        if doc_id:
+            q += " WHERE doc_id=?"; args.append(doc_id)
+        with self._lock:
+            return [dict(r) for r in self.conn.execute(q, args)]
 
     # --------------------------------------------------------- relationships #
     def replace_relationships_for_keys(self, keys, rels: List[Relationship]):

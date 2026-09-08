@@ -35,10 +35,12 @@ load_dotenv()
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Query
 from fastapi.responses import Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from db import Store
 from pipeline import process_document
 import evidence as evidence_mod
+import rag
 
 BASE = Path(__file__).resolve().parent
 ROOT = BASE.parent
@@ -115,7 +117,10 @@ def _enrich(rels):
 
 
 @app.post("/api/upload")
-async def upload(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def upload(background_tasks: BackgroundTasks, file: UploadFile = File(...),
+                 max_pages: int | None = Query(
+                     None, description="Cap ingestion to the first N pages. "
+                                       "Omit or 0 to scan the whole document.")):
     name = os.path.basename(file.filename or "upload.pdf")
     dest = UPLOAD_DIR / name
     with open(dest, "wb") as buf:
@@ -124,21 +129,41 @@ async def upload(background_tasks: BackgroundTasks, file: UploadFile = File(...)
     def job():
         _status.update(state="processing", detail=f"Ingesting {name}…")
         try:
-            res = process_document(str(dest), store, use_llm=USE_LLM)
-            _status.update(state="done",
-                           detail=f"{name}: {res['facts_extracted']} facts, "
-                                  f"reconciliation updated.")
+            res = process_document(str(dest), store, use_llm=USE_LLM,
+                                   max_pages=max_pages)
+            note = f" {res['truncation_note']}" if res.get("is_truncated") else ""
+            _status.update(
+                state="done",
+                detail=f"{name}: {res['facts_extracted']} facts, "
+                       f"reconciliation updated.{note}",
+                total_pages=res["total_pages"], pages_processed=res["pages_processed"],
+                is_truncated=res["is_truncated"], truncation_note=res["truncation_note"])
         except Exception as e:  # keep the server alive; surface the error
             _status.update(state="error", detail=f"{name}: {e}")
 
     background_tasks.add_task(job)
-    return {"status": "processing", "file": name,
-            "llm": USE_LLM, "message": "Ingestion started — poll /api/status."}
+    return {"status": "processing", "file": name, "llm": USE_LLM,
+            "max_pages": max_pages,
+            "message": "Ingestion started — poll /api/status."}
 
 
 @app.get("/api/status")
 def status():
     return _status
+
+
+class AskRequest(BaseModel):
+    question: str
+    doc_id: str | None = None   # scope to one ingested document; None = all
+    top_k: int = 6
+
+
+@app.post("/api/ask")
+def ask(body: AskRequest):
+    """RAG Q&A over ingested PDFs: BM25 retrieval over stored page-text chunks,
+    then a Groq call constrained to cite (document, page) for every claim."""
+    return rag.answer_question(body.question, store, doc_id=body.doc_id,
+                               top_k=body.top_k)
 
 
 @app.get("/api/documents")
@@ -165,6 +190,60 @@ def relationships(type: str | None = Query(None)):
             data = [r for r in data if r.get("type") == type]
         return JSONResponse({"source": "sample", "items": data})
     return []
+
+
+def _pick_case_example(rels_enriched: list, *, rtype: str, dimension=None):
+    for r in rels_enriched:
+        if r["type"] != rtype:
+            continue
+        if dimension is not None and r.get("dimension") != dimension:
+            continue
+        return r
+    return None
+
+
+@app.get("/api/cases")
+def cases(mode: str = Query("dynamic", enum=["dynamic", "benchmark"])):
+    """
+    The four evaluation cases, either derived live from whatever is currently
+    in the knowledge graph (mode=dynamic) or as a curated reference answer
+    from the bundled Delhivery documents (mode=benchmark) — so a reviewer can
+    check the live output against a known-good answer without depending on
+    what happens to be in the DB right now.
+    """
+    if mode == "benchmark":
+        path = SAMPLE_DIR / "cases.json"
+        if path.exists():
+            return JSONResponse(json.loads(path.read_text()))
+        return JSONResponse({"source": "benchmark", "cases": []})
+
+    rels = _enrich(store.relationships())
+    case1 = _pick_case_example(rels, rtype="corroborate")
+    case2 = _pick_case_example(rels, rtype="contradict")
+    case3 = (_pick_case_example(rels, rtype="reconciled", dimension="unit")
+             or _pick_case_example(rels, rtype="reconciled", dimension="definition")
+             or _pick_case_example(rels, rtype="reconciled", dimension="basis")
+             or _pick_case_example(rels, rtype="reconciled", dimension="period"))
+    return JSONResponse({
+        "source": "dynamic",
+        "cases": [
+            {"case": 1, "title": "Corroborated fact across documents",
+             "relationship": case1,
+             "found": case1 is not None},
+            {"case": 2, "title": "Genuine / likely contradiction",
+             "relationship": case2,
+             "found": case2 is not None},
+            {"case": 3, "title": "Apparent contradiction explained by context",
+             "relationship": case3,
+             "found": case3 is not None},
+            {"case": 4, "title": "Extraction & reasoning failure analysis",
+             "note": "Not derivable from the live graph — accounting-parentheses "
+                     "sign handling is implemented (see normalize.parse_value); "
+                     "footnote-formula column matching for reordered table "
+                     "headers is not yet implemented.",
+             "status": "partially_implemented"},
+        ],
+    })
 
 
 @app.get("/api/stats")

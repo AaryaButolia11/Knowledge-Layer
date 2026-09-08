@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from typing import List
 
 from ingest import Doc
@@ -30,6 +31,27 @@ from normalize import (parse_value, parse_unit, parse_period, detect_scope,
 
 CACHE_DIR = os.environ.get("LLM_CACHE", ".llm_cache")
 MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+COOLDOWN_SECONDS = int(os.environ.get("GROQ_COOLDOWN_SECONDS", "60"))
+
+# ---------------------------------------------------------------- breaker --- #
+# Groq free-tier keys hit HTTP 429 under load. Once we see one, stop calling
+# the API for COOLDOWN_SECONDS and fall through to the heuristic extractor for
+# every remaining page in this (and any concurrent) run, instead of hammering
+# a rate-limited endpoint page after page.
+_breaker = {"open_until": 0.0}
+
+
+def _breaker_open() -> bool:
+    return time.time() < _breaker["open_until"]
+
+
+def _trip_breaker():
+    _breaker["open_until"] = time.time() + COOLDOWN_SECONDS
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    s = str(exc).lower()
+    return "429" in s or "rate limit" in s or "rate_limit" in s
 
 _SYSTEM = """You extract QUANTITATIVE FACTS from a page of a financial or macroeconomic report.
 Return ONLY a JSON array. Each element:
@@ -115,16 +137,27 @@ def extract_llm(doc: Doc) -> List[Fact]:
         page_text = "\n".join(texts)[:6000]
         key = _cache_key(page_text)
         cp = _cache_path(key)
+        data = []
         if os.path.exists(cp):
-            data = json.load(open(cp))
-        elif call:
+            try:
+                data = json.load(open(cp))
+            except Exception:
+                data = []  # corrupt cache entry for this page only; skip it
+        elif call and not _breaker_open():
             try:
                 data = _parse_json(call(page_text))
-            except Exception:
-                data = []
-            json.dump(data, open(cp, "w"))
+                json.dump(data, open(cp, "w"))
+            except Exception as e:
+                if _is_rate_limit_error(e):
+                    _trip_breaker()
+                    print(f"[extract_llm] Groq 429 on page {pno} — cooling down "
+                          f"{COOLDOWN_SECONDS}s, remaining pages use the "
+                          f"heuristic extractor.")
+                else:
+                    print(f"[extract_llm] page {pno} failed, skipping: {e}")
+                data = []  # this page's failure never aborts the document
         else:
-            continue  # no key, no cache -> heuristic handles this page
+            continue  # breaker open, or no key/cache -> heuristic handles this page
 
         for item in data:
             try:

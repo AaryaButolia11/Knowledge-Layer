@@ -1,0 +1,41 @@
+{
+  "source": "benchmark",
+  "cases": [
+    {
+      "case": 1,
+      "title": "Corroborated fact across documents",
+      "fact": "FY24 Express Parcel Shipment Volume = 740 Million shipments",
+      "evidence_a": "Delhivery Earnings Presentation Q4 & FY24, p.6 & p.9 — '740 Mn Express parcel shipments in FY24, YoY: 11.5%'",
+      "evidence_b": "Delhivery Annual Report 2023-24, p.6 & p.36 — 'Express parcel shipment volume (million) FY24: 740'",
+      "reasoning": "Both documents independently verify the same operational metric despite differing visual formats (infographic vs. financial table), and both isolate Express Parcel from PTL freight (measured separately in tonnes), so the metrics are genuinely comparable.",
+      "secondary": "Spoton Logistics acquisition date (Aug 2021) independently corroborated across Prospectus 2022 p.48 and Annual Report 2023-24 p.22."
+    },
+    {
+      "case": 2,
+      "title": "Genuine / likely contradiction",
+      "fact": "Partner Delivery Centers & Total Last-Mile Centers as of Mar 31, 2024",
+      "evidence_a": "Earnings Presentation Q4 & FY24, p.8 — Partner centers: 939 (+ 3,506 Express centers = 4,445 total)",
+      "evidence_b": "Annual Report 2023-24, p.47 — '3,506 Direct Delivery Centres | 938 Partner Delhivery Centres' (= 4,444 total); p.2 of the same report separately claims 4,445",
+      "reasoning": "Same snapshot date, same metric, two sources disagree by 1 unit (939 vs 938; 4,445 vs 4,444) — an unresolved counting contradiction, not explained by period, unit, or scope.",
+      "secondary": "Workforce headcount: Director's Report p.34 reports 23,381 permanent employees vs. BRSR p.51's 18,527 employees + 5,898 workers = 24,425 — a scope-boundary ambiguity that blurs into a contradiction depending on the 'employee' definition used."
+    },
+    {
+      "case": 3,
+      "title": "Apparent contradiction explained by context",
+      "fact": "FY24 Revenue: ₹8,142 Cr vs ₹81,415.38 (units differ)",
+      "evidence_a": "Earnings Presentation Q4 & FY24, p.6 — '₹8,142 Cr FY24 revenue from services, YoY: 12.7%'",
+      "evidence_b": "Annual Report 2023-24, p.22 — 'revenue from operations on a consolidated basis for FY24 stood at ₹81,415.38 million'",
+      "reasoning": "Naive comparison sees an order-of-magnitude gap. Unit normalization (1 Cr = 1e7 INR, 1 Million = 1e6 INR) converts ₹81,415.38M -> ₹8,141.5 Cr, which matches ₹8,142 Cr within rounding.",
+      "secondary": "Annual Report p.22 also reports Standalone (parent-only) revenue of ₹74,540.82M vs Consolidated ₹81,415.38M — reconciled by reporting boundary (basis), not a data error."
+    },
+    {
+      "case": 4,
+      "title": "Extraction & reasoning failure analysis",
+      "fact": "Known parser failure modes and the mitigations in place",
+      "evidence_a": "Prospectus proforma financial statement, p.22 — column (D) Intragroup Elimination is printed before column (C) Acquisition Adjustments, which breaks parsers that assume A,B,C,D left-to-right ordering.",
+      "evidence_b": "Balance-sheet figures written as accounting parentheses, e.g. '(4,157.43)', which naive regex/LLM extraction often strips into a positive number.",
+      "reasoning": "This system's mitigation for the second failure mode is implemented (normalize.parse_value treats a leading '(' plus trailing ')' as a negative sign). The column-reordering failure mode (matching columns by their footnote formula, e.g. E = C + D, rather than by visual left-to-right position) is NOT yet implemented — flagged as an open gap rather than claimed as solved.",
+      "status": "partially_implemented"
+    }
+  ]
+}
