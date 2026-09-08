@@ -18,8 +18,10 @@ lock. It keeps the code simple and is more than fast enough for this workload.
 """
 from __future__ import annotations
 import json
+import os
 import sqlite3
 import threading
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from models import Fact, Relationship
@@ -46,6 +48,12 @@ CREATE INDEX IF NOT EXISTS idx_rel_type ON relationships(type);
 class Store:
     def __init__(self, path: str = "knowledge.db"):
         self.path = path
+        # Make sure the parent directory exists. sqlite3.connect fails with an
+        # opaque "unable to open database file" if it doesn't (e.g. KB_DB set
+        # to a path under a directory that hasn't been created on this host).
+        parent = os.path.dirname(os.path.abspath(path))
+        if parent:
+            Path(parent).mkdir(parents=True, exist_ok=True)
         # One connection, shared across FastAPI's worker threads. Safe because
         # every access is wrapped in self._lock below.
         self.conn = sqlite3.connect(path, check_same_thread=False)
