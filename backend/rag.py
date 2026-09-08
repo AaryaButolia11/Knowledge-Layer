@@ -38,6 +38,10 @@ using ONLY the excerpts provided below. Rules:
 - Keep the answer concise (a few sentences, or a short list for multi-part
   questions)."""
 
+# Set by _client() every time it's called, so /api/llm-status (main.py) can
+# report *why* the Groq client isn't ready — not just that it isn't.
+_last_client_error: Optional[str] = None
+
 
 def _tokenize(text: str) -> List[str]:
     return TOKEN_RE.findall(text.lower())
@@ -76,9 +80,20 @@ class _BM25:
 
 
 def _client():
-    """Return callable(system, user) -> str, or None if no Groq key/SDK."""
+    """Return callable(system, user) -> str, or None if no Groq key/SDK.
+
+    Also records the reason for failure in module-level `_last_client_error`
+    so /api/llm-status can surface it (e.g. "GROQ_API_KEY not set" vs.
+    "langchain-groq not installed" vs. an actual SDK/auth error), rather than
+    just reporting a bare True/False.
+    """
+    global _last_client_error
+    _last_client_error = None
+
     if not os.environ.get("GROQ_API_KEY"):
+        _last_client_error = "GROQ_API_KEY not set"
         return None
+
     try:
         from langchain_groq import ChatGroq
         from langchain_core.messages import SystemMessage, HumanMessage
@@ -88,7 +103,7 @@ def _client():
             resp = llm.invoke([SystemMessage(content=system), HumanMessage(content=user)])
             return resp.content
         return call
-    except Exception:
+    except Exception as e_langchain:
         try:
             from groq import Groq
             g = Groq()
@@ -100,7 +115,10 @@ def _client():
                               {"role": "user", "content": user}])
                 return r.choices[0].message.content
             return call
-        except Exception:
+        except Exception as e_groq:
+            _last_client_error = (
+                f"langchain-groq unavailable ({e_langchain}); "
+                f"groq SDK fallback also failed ({e_groq})")
             return None
 
 
