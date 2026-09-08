@@ -1,12 +1,13 @@
-# Core service (no credentials required — the heuristic extractor runs offline)
-fastapi>=0.110
-uvicorn[standard]>=0.29
-python-multipart>=0.0.9
-pymupdf>=1.24
-python-dotenv>=1.0
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20
+python-dotenv==1.0.1
+pymupdf==1.24.14
 
-# Optional: Groq LLM extractor (used only if GROQ_API_KEY is set).
-# Model defaults to openai/gpt-oss-120b (Groq free tier).
-langchain>=0.2
-langchain-groq>=0.1
-pydantic>=2.6
+# Optional: only needed if you set GROQ_API_KEY to enable the LLM extractor.
+# extract_llm.py already degrades gracefully (returns []) if these aren't
+# installed or the key isn't set, so they're safe to leave out to keep the
+# build lighter — uncomment if you want the LLM pass on Render.
+# groq==0.13.1
+# langchain-groq==0.2.3
+# langchain-core==0.3.28

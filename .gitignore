@@ -1,8 +1,14 @@
 __pycache__/
 *.pyc
-.env
+
 backend/knowledge.db
 backend/uploads/
 .llm_cache/
 .venv/
 venv/
+backend/knowledge.db
+backend/uploads/
+backend/.llm_cache/
+__pycache__/
+*.pyc
+.env

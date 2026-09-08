@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: fact-knowledge-layer
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      # Optional: set this in the Render dashboard (not here) if you want
+      # the LLM extractor enabled. Leaving it unset keeps the app fully
+      # functional on the heuristic extractor with zero credentials.
+      # - key: GROQ_API_KEY
+      #   sync: false
