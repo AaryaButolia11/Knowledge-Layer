@@ -152,6 +152,17 @@ def status():
     return _status
 
 
+@app.get("/api/llm-status")
+def llm_status():
+    """Diagnostic: attempts to actually build the Groq client right now and
+    reports why it failed, if it did — separate from the coarse llm_enabled
+    flag in /api/stats, which only checks whether GROQ_API_KEY is set."""
+    call = rag._client()
+    return {"key_set": bool(os.environ.get("GROQ_API_KEY")),
+            "client_ready": call is not None,
+            "reason": rag._last_client_error}
+
+
 class AskRequest(BaseModel):
     question: str
     doc_id: str | None = None   # scope to one ingested document; None = all
