@@ -1,4 +1,4 @@
-# Fact Knowledge Layer
+# Fact Knowledge Layer 🧠
 
 A system that reads PDFs, extracts **qualified numerical facts**, ties every fact to the
 exact place it came from in the source page, and then works out where those facts
