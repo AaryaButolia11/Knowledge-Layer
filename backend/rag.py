@@ -24,7 +24,7 @@ import re
 from collections import Counter
 from typing import Dict, Any, List, Optional
 
-from extract_llm import _breaker_open, _trip_breaker, _is_rate_limit_error
+from extract_llm import _breaker_open, _trip_breaker, _is_rate_limit_error, _throttle
 
 MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 TOKEN_RE = re.compile(r"[a-z0-9]+")
@@ -155,6 +155,7 @@ def answer_question(question: str, store, doc_id: Optional[str] = None,
                           "in about a minute.", "sources": sources}
 
     try:
+        _throttle()
         text = call(_SYSTEM, f"Question: {question}\n\nExcerpts:\n{context}")
     except Exception as e:
         if _is_rate_limit_error(e):

@@ -51,14 +51,22 @@ FRONTEND_DIR = ROOT / "frontend"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 USE_LLM = bool(os.environ.get("GROQ_API_KEY"))
+# Autoseed runs on every cold start and can touch many pages across several
+# PDFs in one burst. Running that with the LLM extractor on used to fire a
+# rapid sequence of Groq calls before a single real user request had even
+# arrived, tripping the free-tier rate limit and leaving /api/ask sitting in
+# a cooldown window nobody caused. Default autoseed to the heuristic
+# extractor only; opt in explicitly (AUTOSEED_USE_LLM=true) if you want
+# higher-recall seeding and are OK with the rate-limit risk on cold start.
+AUTOSEED_USE_LLM = os.environ.get("AUTOSEED_USE_LLM", "false").lower() == "true"
 store = Store(DB_PATH)
 
 
 def _autoseed_if_empty():
     """Zero-setup startup: if the knowledge base has no documents yet, build it
-    from the bundled sample PDFs (offline heuristic extractor). This is why
-    `python main.py` on its own gives a fully working demo — with real evidence
-    crops and annotated PDFs — without a separate seeding step."""
+    from the bundled sample PDFs. This is why `python main.py` on its own
+    gives a fully working demo — with real evidence crops and annotated
+    PDFs — without a separate seeding step."""
     try:
         if store.stats().get("documents", 0) > 0:
             return
@@ -70,10 +78,10 @@ def _autoseed_if_empty():
         print("[startup] no sample_pdfs/ found; starting with an empty layer.")
         return
     print(f"[startup] empty knowledge base — seeding from {len(pdfs)} sample PDFs "
-          f"(LLM extractor: {USE_LLM}). One-time, ~10–20s …")
+          f"(LLM extractor: {AUTOSEED_USE_LLM}). One-time, ~10–20s …")
     for p in pdfs:
         try:
-            process_document(p, store, use_llm=USE_LLM)
+            process_document(p, store, use_llm=AUTOSEED_USE_LLM)
         except Exception as e:  # never let one bad PDF stop startup
             print(f"[startup]   skipped {os.path.basename(p)}: {e}")
     print(f"[startup] seeded: {store.stats()}")

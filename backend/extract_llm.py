@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
 from typing import List
 
@@ -31,7 +32,7 @@ from normalize import (parse_value, parse_unit, parse_period, detect_scope,
 
 CACHE_DIR = os.environ.get("LLM_CACHE", ".llm_cache")
 MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
-COOLDOWN_SECONDS = int(os.environ.get("GROQ_COOLDOWN_SECONDS", "60"))
+COOLDOWN_SECONDS = int(os.environ.get("GROQ_COOLDOWN_SECONDS", "90"))
 
 # ---------------------------------------------------------------- breaker --- #
 # Groq free-tier keys hit HTTP 429 under load. Once we see one, stop calling
@@ -47,6 +48,29 @@ def _breaker_open() -> bool:
 
 def _trip_breaker():
     _breaker["open_until"] = time.time() + COOLDOWN_SECONDS
+
+
+# --------------------------------------------------------------- throttle --- #
+# The breaker only reacts *after* a 429 already happened. On its own that
+# still lets a burst of calls (e.g. every page of a freshly-ingested PDF, or
+# autoseed scanning several sample PDFs on cold start) fire back-to-back and
+# trip the free-tier rate limit almost immediately — which is what made the
+# very first /api/ask land inside a cooldown window nobody caused on purpose.
+# _throttle() enforces a minimum spacing between Groq calls, shared by every
+# caller (extraction here, and rag.py's Q&A), so we ease into the rate limit
+# instead of bursting through it.
+MIN_CALL_INTERVAL = float(os.environ.get("GROQ_MIN_INTERVAL_SECONDS", "1.5"))
+_rate_lock = threading.Lock()
+_last_call_at = {"t": 0.0}
+
+
+def _throttle():
+    with _rate_lock:
+        now = time.time()
+        wait = _last_call_at["t"] + MIN_CALL_INTERVAL - now
+        if wait > 0:
+            time.sleep(wait)
+        _last_call_at["t"] = time.time()
 
 
 def _is_rate_limit_error(exc: Exception) -> bool:
@@ -145,6 +169,7 @@ def extract_llm(doc: Doc) -> List[Fact]:
                 data = []  # corrupt cache entry for this page only; skip it
         elif call and not _breaker_open():
             try:
+                _throttle()
                 data = _parse_json(call(page_text))
                 json.dump(data, open(cp, "w"))
             except Exception as e:
