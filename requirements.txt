@@ -1,0 +1,12 @@
+# Core service (no credentials required — the heuristic extractor runs offline)
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+pymupdf>=1.24
+python-dotenv>=1.0
+
+# Optional: Groq LLM extractor (used only if GROQ_API_KEY is set).
+# Model defaults to openai/gpt-oss-120b (Groq free tier).
+langchain>=0.2
+langchain-groq>=0.1
+pydantic>=2.6

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fact Knowledge Layer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="scrim"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="mark" aria-hidden="true"></div>
+    <div class="brand-txt">
+      <h1>Fact Knowledge&nbsp;Layer</h1>
+      <p>Extract numbers from PDFs · ground them in evidence · reconcile them across documents</p>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span class="pill" id="engine-pill" title="Extraction engine in use">engine…</span>
+    <label class="upload-btn" id="upload-label">
+      <input type="file" id="file" accept="application/pdf" hidden />
+      <span>Add a PDF</span>
+    </label>
+  </div>
+</header>
+
+<!-- hero: the ledger tally -->
+<section class="tally" id="tally">
+  <button class="tile is-corroborate" data-filter="corroborate">
+    <span class="tile-n" id="n-corr">—</span>
+    <span class="tile-l">Corroborations</span>
+    <span class="tile-s">same fact, agreeing sources</span>
+  </button>
+  <button class="tile is-contradict" data-filter="contradict">
+    <span class="tile-n" id="n-contra">—</span>
+    <span class="tile-l">Contradictions</span>
+    <span class="tile-s">same fact, sources disagree</span>
+  </button>
+  <button class="tile is-reconciled" data-filter="reconciled">
+    <span class="tile-n" id="n-recon">—</span>
+    <span class="tile-l">Reconciliations</span>
+    <span class="tile-s">look different, explained by context</span>
+  </button>
+  <div class="tile tile-meta">
+    <div><span class="meta-n" id="n-facts">—</span><span class="meta-l">grounded facts</span></div>
+    <div><span class="meta-n" id="n-docs">—</span><span class="meta-l">documents</span></div>
+  </div>
+</section>
+
+<!-- upload progress -->
+<div class="drop-status" id="drop-status" hidden>
+  <div class="spinner"></div>
+  <span id="drop-msg">Processing…</span>
+</div>
+
+<nav class="tabs" id="tabs">
+  <button class="tab is-active" data-tab="relationships">Relationships</button>
+  <button class="tab" data-tab="documents">Annotated documents</button>
+  <button class="tab" data-tab="facts">Facts</button>
+</nav>
+
+<main>
+  <!-- RELATIONSHIPS -->
+  <section class="panel" data-view="relationships">
+    <div class="filters" id="filters">
+      <button class="chip is-on" data-filter="all">All</button>
+      <button class="chip" data-filter="corroborate">Corroborated</button>
+      <button class="chip" data-filter="contradict">Contradiction</button>
+      <button class="chip" data-filter="reconciled">Reconciled</button>
+    </div>
+    <div id="rel-list" class="rel-list"></div>
+  </section>
+
+  <!-- DOCUMENTS / ANNOTATION VIEWER -->
+  <section class="panel" data-view="documents" hidden>
+    <div class="doc-toolbar">
+      <select id="doc-select" class="doc-select"><option>Loading…</option></select>
+      <a id="dl-pdf" class="dl-btn" download>Download annotated PDF</a>
+      <div class="legend">
+        <span class="lg lg-corroborate">Corroborated</span>
+        <span class="lg lg-contradict">Contradiction</span>
+        <span class="lg lg-reconciled">Reconciled</span>
+      </div>
+    </div>
+    <p class="doc-hint">Only pages with a fact that takes part in a relationship are shown. Hover a highlight to see the reasoning — the downloadable PDF carries the same coloured highlights with the reasoning as a hover note.</p>
+    <div id="doc-pages" class="doc-pages"></div>
+  </section>
+
+  <!-- FACTS -->
+  <section class="panel" data-view="facts" hidden>
+    <input id="fact-search" class="search" placeholder="Search facts by metric, value, period, or source…" />
+    <div id="fact-list" class="fact-list"></div>
+  </section>
+</main>
+
+<div id="tooltip" class="tooltip" hidden></div>
+<footer class="foot">
+  <span>Heuristic extractor runs with no key. Set <code>GROQ_API_KEY</code> to add the Groq LLM pass.</span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

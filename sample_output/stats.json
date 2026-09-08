@@ -1,0 +1,9 @@
+{
+  "documents": 6,
+  "facts": 405,
+  "grounded_facts": 405,
+  "relationships": 40,
+  "corroborate": 14,
+  "contradict": 1,
+  "reconciled": 25
+}
