@@ -3,11 +3,4 @@ uvicorn[standard]==0.32.1
 python-multipart==0.0.20
 python-dotenv==1.0.1
 pymupdf==1.24.14
-
-# Optional: only needed if you set GROQ_API_KEY to enable the LLM extractor.
-# extract_llm.py already degrades gracefully (returns []) if these aren't
-# installed or the key isn't set, so they're safe to leave out to keep the
-# build lighter — uncomment if you want the LLM pass on Render.
 groq==0.13.1
-langchain-groq==0.2.3
-langchain-core==0.3.28
