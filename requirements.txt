@@ -8,6 +8,6 @@ pymupdf==1.24.14
 # extract_llm.py already degrades gracefully (returns []) if these aren't
 # installed or the key isn't set, so they're safe to leave out to keep the
 # build lighter — uncomment if you want the LLM pass on Render.
-# groq==0.13.1
-# langchain-groq==0.2.3
-# langchain-core==0.3.28
+groq==0.13.1
+langchain-groq==0.2.3
+langchain-core==0.3.28
