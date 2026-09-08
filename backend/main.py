@@ -77,9 +77,16 @@ def _autoseed_if_empty():
     print(f"[startup] seeded: {store.stats()}")
 
 
-_autoseed_if_empty()
-
 app = FastAPI(title="Fact Knowledge Layer")
+
+
+@app.on_event("startup")
+def _kick_off_autoseed():
+    # Run in a background thread so the server can bind its port and answer
+    # health checks immediately, instead of Render's port scan timing out
+    # while a cold-start ingests every sample PDF synchronously.
+    import threading
+    threading.Thread(target=_autoseed_if_empty, daemon=True).start()
 
 # ---- in-memory progress for the last upload (nice UX, not essential) -------- #
 _status = {"state": "idle", "detail": ""}
