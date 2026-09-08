@@ -10,6 +10,12 @@ no internet needed**. A web UI lets you upload a PDF, watch it merge into the ex
 knowledge layer, browse relationships with their **source evidence**, and view or download
 the **original PDF with real colour-coded highlights** whose reasoning appears on hover.
 
+### Deployment:
+> Live Link: https://knowledge-layer-i014.onrender.com
+> API Docs : https://knowledge-layer-i014.onrender.com/docs
+
+
+### Made for:
 > Built for the Superjoin VIT 2026 Engineering Intern assignment. The starter set is six
 > Indian corporate/macro PDFs (Delhivery filings + RBI / IMF / Economic Survey excerpts).
 > **Nothing in the extraction or reasoning is specific to them** — upload any PDF.
