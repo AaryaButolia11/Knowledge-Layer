@@ -203,7 +203,17 @@ def documents():
 @app.get("/api/facts")
 def facts(metric_key: str | None = Query(None), limit: int = 1000):
     fs = store.facts(metric_key=metric_key)[:limit]
-    return [_fact_view(f) for f in fs]
+    if fs:
+        return [_fact_view(f) for f in fs]
+    # zero-setup fallback: shipped sample so the Facts tab is never empty while
+    # the knowledge base is still seeding (mirrors /api/relationships & /api/stats)
+    sample = SAMPLE_DIR / "facts.json"
+    if sample.exists():
+        data = json.loads(sample.read_text())
+        if metric_key:
+            data = [f for f in data if f.get("metric_key") == metric_key]
+        return data[:limit]
+    return []
 
 
 @app.get("/api/relationships")

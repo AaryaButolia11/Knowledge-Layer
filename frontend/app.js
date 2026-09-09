@@ -204,12 +204,27 @@ function paintTally(s) {
   animateCount($("#n-docs"), s.documents ?? 0);
 }
 
+/* Tidy a raw value token for display. The extractor keeps a few characters
+   after the number to catch a unit (e.g. "₹127Cr"), which sometimes drags in a
+   trailing separator ("₹127Cr /") or a truncated magnitude word ("₹40,000.00
+   mill"). Strip those; the unit chip already shows the canonical unit. */
+function cleanVal(raw) {
+  let s = (raw ?? "").toString().trim();
+  s = s.replace(/[\s/|;:]+$/g, ""); // trailing separators / slashes
+  s = s.replace(
+    /\s+(mill|milli|millio|billi|billio|thousan?|thousa|lak)$/i,
+    "",
+  ); // truncated magnitudes
+  s = s.replace(/[\s/|]+$/g, "");
+  return s.trim() || (raw ?? "").toString().trim();
+}
+
 /* ------------------------------------------------------- relationship cards */
 function factSide(f) {
   const crop = `<img class="crop" loading="lazy" src="/api/evidence/${encodeURIComponent(f.id)}"
                  onerror="this.remove()" alt="source evidence crop" />`;
   return `<div class="side">
-    <div class="val">${esc(f.value_raw)}</div>
+    <div class="val">${esc(cleanVal(f.value_raw))}</div>
     <div class="meta">${esc(f.metric)} · ${esc(f.period || "period n/a")}${f.unit_canonical ? ` · ${esc(f.unit_canonical)}` : ""}</div>
     <div class="src">${esc(f.doc_name)} — p${(f.page ?? 0) + 1}</div>
     ${crop}
@@ -254,7 +269,7 @@ function renderFacts(q = "") {
         .map(
           (f) => `
     <div class="fact">
-      <div class="fv">${esc(f.value_raw)}</div>
+      <div class="fv">${esc(cleanVal(f.value_raw))}</div>
       <div class="fm">${esc(f.metric)}</div>
       <div class="fmeta">
         <span>${esc(f.period || "—")}</span>
