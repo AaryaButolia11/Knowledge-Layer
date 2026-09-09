@@ -1,15 +1,22 @@
+# Render Blueprint — deploy the Fact Knowledge Layer as a free web service.
+# In Render: New → Blueprint → connect this repo → Apply.
 services:
   - type: web
     name: fact-knowledge-layer
     runtime: python
     plan: free
-    buildCommand: pip install -r backend/requirements.txt
-    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    # Build deps, then pre-seed the knowledge base so the very first page load is
+    # instant and complete (no cold-start race). Auto-seed still runs at startup
+    # as a fallback if the DB is ever empty.
+    buildCommand: "pip install -r requirements.txt && cd backend && python seed_demo.py"
+    # $PORT is provided by Render. --app-dir puts backend/ on the import path so
+    # `main:app` resolves while the repo root stays the working directory.
+    startCommand: "python -m uvicorn main:app --host 0.0.0.0 --port $PORT --app-dir backend"
+    healthCheckPath: /api/ready
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.9
-      # Optional: set this in the Render dashboard (not here) if you want
-      # the LLM extractor enabled. Leaving it unset keeps the app fully
-      # functional on the heuristic extractor with zero credentials.
-      # - key: GROQ_API_KEY
-      #   sync: false
+        value: "3.12.6"
+      # Optional: enable the Ask tab + LLM extraction. Set the value in the
+      # Render dashboard (Environment tab) — never commit a real key.
+      - key: GROQ_API_KEY
+        sync: false

@@ -121,8 +121,35 @@ function showToast({
 }
 
 /* -------------------------------------------------------------------- boot */
+// On a cold start (e.g. Render free tier) the server seeds the 6 sample PDFs in
+// a background thread. Wait for that to finish before loading, so we never show
+// a half-built layer or crops whose facts aren't in the DB yet.
+async function waitUntilReady() {
+  const bar = $("#drop-status");
+  const msg = $("#drop-msg");
+  let shown = false;
+  for (let i = 0; i < 120; i++) {
+    const s = await api("/api/stats").catch(() => ({}));
+    // Wait until the backend reports the initial seed is complete. Older builds
+    // don't send `ready` at all — treat its absence as "ready" so they still load.
+    if (s.ready === true || s.ready === undefined) {
+      if (shown && bar) bar.hidden = true;
+      return s;
+    }
+    if (bar && msg) {
+      bar.hidden = false;
+      shown = true;
+      const done = s.seed_done ?? 0,
+        total = s.seed_total ?? 6;
+      msg.textContent = `Building the knowledge base from sample PDFs… (${done}/${total})`;
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return await api("/api/stats").catch(() => ({}));
+}
+
 async function boot() {
-  const stats = await api("/api/stats").catch(() => ({}));
+  const stats = await waitUntilReady();
   paintTally(stats);
   const engine = $("#engine-pill");
   if (stats.llm_enabled) {

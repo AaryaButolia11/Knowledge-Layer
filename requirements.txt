@@ -1,6 +1,15 @@
-fastapi==0.115.6
-uvicorn[standard]==0.32.1
-python-multipart==0.0.20
-python-dotenv==1.0.1
-pymupdf==1.24.14
-groq==0.13.1
+# --- core service (no credentials required; heuristic extractor runs offline) --
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+pymupdf>=1.24
+python-dotenv>=1.0
+pydantic>=2.6
+
+# --- optional LLM features (the "Ask" tab and higher-recall extraction) --------
+# The app works fully without these. Install them AND set GROQ_API_KEY to turn on
+# Groq Q&A / LLM extraction. `groq` is the lightweight official SDK and is enough
+# on its own; langchain-groq is only needed if you prefer the LangChain path.
+groq>=0.11
+langchain-core>=0.2
+langchain-groq>=0.1

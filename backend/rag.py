@@ -147,9 +147,18 @@ def answer_question(question: str, store, doc_id: Optional[str] = None,
 
     call = _client()
     if not call:
-        return {"answer": "Set GROQ_API_KEY to enable question answering "
-                          "(retrieval still ran — see sources).",
-                "sources": sources}
+        # _client() records exactly why in _last_client_error — surface it so
+        # the user can tell "key missing" from "groq package not installed"
+        # from an auth error, instead of a blanket "set GROQ_API_KEY".
+        reason = _last_client_error or "GROQ_API_KEY not set"
+        if "not set" in reason.lower():
+            msg = ("Groq Q&A is off because GROQ_API_KEY isn't set for this "
+                   "process. On Render: add it under the service's Environment "
+                   "tab, then redeploy. Retrieval still ran — see sources.")
+        else:
+            msg = (f"Groq Q&A unavailable: {reason}. "
+                   f"Retrieval still ran — see sources.")
+        return {"answer": msg, "sources": sources}
     if _breaker_open():
         return {"answer": "Groq is cooling down after a rate limit — try again "
                           "in about a minute.", "sources": sources}

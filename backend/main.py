@@ -61,6 +61,11 @@ USE_LLM = bool(os.environ.get("GROQ_API_KEY"))
 AUTOSEED_USE_LLM = os.environ.get("AUTOSEED_USE_LLM", "false").lower() == "true"
 store = Store(DB_PATH)
 
+# Seeding progress, so the UI can wait until the knowledge base is fully built
+# instead of rendering a half-seeded snapshot (the autoseed runs in a background
+# thread on cold start so the port binds immediately for Render's health check).
+_seed = {"seeding": False, "done": 0, "total": 0, "ready": False}
+
 
 def _autoseed_if_empty():
     """Zero-setup startup: if the knowledge base has no documents yet, build it
@@ -69,6 +74,7 @@ def _autoseed_if_empty():
     PDFs — without a separate seeding step."""
     try:
         if store.stats().get("documents", 0) > 0:
+            _seed["ready"] = True
             return
     except Exception:
         pass
@@ -76,7 +82,9 @@ def _autoseed_if_empty():
     pdfs = sorted(glob.glob(str(ROOT / "sample_pdfs" / "*.pdf")))
     if not pdfs:
         print("[startup] no sample_pdfs/ found; starting with an empty layer.")
+        _seed["ready"] = True
         return
+    _seed.update(seeding=True, total=len(pdfs), done=0, ready=False)
     print(f"[startup] empty knowledge base — seeding from {len(pdfs)} sample PDFs "
           f"(LLM extractor: {AUTOSEED_USE_LLM}). One-time, ~10–20s …")
     for p in pdfs:
@@ -84,6 +92,8 @@ def _autoseed_if_empty():
             process_document(p, store, use_llm=AUTOSEED_USE_LLM)
         except Exception as e:  # never let one bad PDF stop startup
             print(f"[startup]   skipped {os.path.basename(p)}: {e}")
+        _seed["done"] += 1
+    _seed.update(seeding=False, ready=True)
     print(f"[startup] seeded: {store.stats()}")
 
 
@@ -265,6 +275,14 @@ def cases(mode: str = Query("dynamic", enum=["dynamic", "benchmark"])):
     })
 
 
+@app.get("/api/ready")
+def ready():
+    """Lightweight readiness probe the UI polls on load: true once the initial
+    autoseed has finished, so the frontend never renders a half-built layer."""
+    return {"ready": _seed["ready"], "seeding": _seed["seeding"],
+            "done": _seed["done"], "total": _seed["total"]}
+
+
 @app.get("/api/stats")
 def stats():
     s = store.stats()
@@ -272,6 +290,11 @@ def stats():
         s = json.loads((SAMPLE_DIR / "stats.json").read_text())
         s["source"] = "sample"
     s["llm_enabled"] = USE_LLM
+    # seeding progress so the UI can wait for a complete layer
+    s["seeding"] = _seed["seeding"]
+    s["ready"] = _seed["ready"]
+    s["seed_done"] = _seed["done"]
+    s["seed_total"] = _seed["total"]
     return s
 
 
