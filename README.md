@@ -16,9 +16,14 @@ visually, ask questions of the ingested PDFs in plain English, and view or downl
 > Live Link: https://knowledge-layer-i014.onrender.com
 
 > API Docs : https://knowledge-layer-i014.onrender.com/docs
-
 _(Free-tier host: the first request after idle may take ~30s to wake and, on a cold
 instance, rebuild the demo layer — the UI shows a "Building… (n/6)" bar while it does.)_
+
+
+### Demo Video
+
+> Demo Link: https://youtu.be/LmKlSlWCcBA
+
 
 ### Made for
 
