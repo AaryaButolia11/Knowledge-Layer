@@ -31,8 +31,10 @@ if os.path.exists(_TMP_DB):
     os.remove(_TMP_DB)
 os.environ["KB_DB"] = _TMP_DB
 os.environ.pop("GROQ_API_KEY", None)          # force the offline path
+os.environ.pop("AUTOSEED_MAX_PAGES", None)     # scan all pages for the full suite
 
-import main                                    # noqa: E402  (auto-seeds _TMP_DB)
+import main                                    # noqa: E402
+main._autoseed_if_empty()                       # seed the temp DB synchronously
 from fastapi.testclient import TestClient       # noqa: E402
 from normalize import (parse_unit, parse_value, parse_period,  # noqa: E402
                        to_base, canonical_metric)
@@ -93,6 +95,8 @@ def suite_api():
           f"got {type(facts)}")
 
     rels = client.get("/api/relationships").json()
+    if isinstance(rels, dict):          # sample fallback shape {source, items}
+        rels = rels.get("items", [])
     types = {r["type"] for r in rels}
     check("GET /api/relationships enriched with both facts",
           rels and all(r.get("a") and r.get("b") for r in rels)
