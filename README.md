@@ -16,6 +16,9 @@ visually, ask questions of the ingested PDFs in plain English, and view or downl
 > Live Link: https://knowledge-layer-i014.onrender.com
 > API Docs : https://knowledge-layer-i014.onrender.com/docs
 
+_(Free-tier host: the first request after idle may take ~30s to wake and, on a cold
+instance, rebuild the demo layer — the UI shows a "Building… (n/6)" bar while it does.)_
+
 ### Made for
 
 > Built for the Superjoin VIT 2026 Engineering Intern assignment. The starter set is six
@@ -24,7 +27,7 @@ visually, ask questions of the ingested PDFs in plain English, and view or downl
 
 > **About the optional Groq key:** you do **not** need it. By default there is no key, so
 > only the offline heuristic extractor runs and it produces every relationship below. Groq
-> is used in two *optional* places: (1) a second extraction pass that proposes extra
+> is used in two _optional_ places: (1) a second extraction pass that proposes extra
 > candidate facts on messy prose — it never decides relationships — and (2) the **Ask** tab,
 > which answers plain-English questions over the ingested PDFs' own text. Both degrade
 > gracefully with no key: extraction silently returns `[]` for that page and Ask tells you
@@ -57,18 +60,18 @@ reader treats them as one agreeing fact; so does the system.
 **What the engine finds (exact locations).**
 
 - **FY24 revenue = ₹8,142 Cr** — written as **"₹8,142 Cr · FY24 revenue from services"** on
-  **`DECK` p6**, and as a bare **"8,142"** in the *Revenue for services (A)* table on
+  **`DECK` p6**, and as a bare **"8,142"** in the _Revenue for services (A)_ table on
   **`DECK` p17**.
 - **EBITDA = ₹127 Cr** — **"₹127Cr"** on **`DECK` p6** vs **"127" (Reported EBITDA)** on
   **`DECK` p23**.
 
 **How it decides.** Both normalise to the same `(metric = revenue, period = FY24, scope,
 unit = crore)` and the same base value; only the representation differs (`₹…Cr` vs a plain
-number), so they're **comparable and equal → corroborate**, tagged *"expressed in different
-units but equal after normalisation."*
+number), so they're **comparable and equal → corroborate**, tagged _"expressed in different
+units but equal after normalisation."_
 
 **Honest scope note.** These corroborations are **cross-page within one filing**. True
-cross-*document* corroboration (deck ↔ annual report) is currently limited by the
+cross-_document_ corroboration (deck ↔ annual report) is currently limited by the
 metric-ontology gap in **Limitations** — we don't fake it.
 
 ### Case 2 — A genuine or likely contradiction
@@ -95,9 +98,9 @@ them.
 **What the engine finds (exact locations).**
 
 - **By definition** — EBITDA **₹127 Cr (reported)** vs **₹76 Cr (adjusted)**, both on
-  **`DECK` p6** → *reconciled by DEFINITION.*
+  **`DECK` p6** → _reconciled by DEFINITION._
 - **By period** — EBITDA **₹127 Cr (FY24, `DECK` p6)** vs **₹46 Cr (Q4 FY24, `DECK` p7)** →
-  *reconciled by PERIOD.*
+  _reconciled by PERIOD._
 - **By unit (the classic)** — the normalizer proves **₹8,142 Cr** (`DECK` p6) ≡
   **₹81,415.38 million** (`AR` p22): ₹81,415.38 M ÷ 10 = ₹8,141.5 Cr ≈ ₹8,142 Cr, so an
   apparent order-of-magnitude clash collapses to a match (demonstrated by the normalization
@@ -105,7 +108,7 @@ them.
 
 **How it decides.** The two facts match on base metric but differ on exactly one qualifier —
 `definition = reported vs adjusted`, `period = FY vs quarter`, or `unit = crore vs million` —
-so the engine emits **reconciled** and records *which* dimension explains the gap.
+so the engine emits **reconciled** and records _which_ dimension explains the gap.
 
 ### Case 4 — An extraction or reasoning failure, and how it's handled
 
@@ -113,7 +116,7 @@ so the engine emits **reconciled** and records *which* dimension explains the ga
 handling them safely — matters more than pretending they don't exist.
 
 **Handled correctly (a positive edge case):** accounting **parentheses are read as
-negatives** — e.g. *Adjusted EBITDA* **(404)** on **`DECK` p14** is stored as **−404 Cr**,
+negatives** — e.g. _Adjusted EBITDA_ **(404)** on **`DECK` p14** is stored as **−404 Cr**,
 not +404, so loss-making periods reason correctly (verified in the UI and the test suite).
 
 **Known failures, handled by staying silent rather than wrong:**
@@ -129,8 +132,63 @@ not +404, so loss-making periods reason correctly (verified in the UI and the te
 - **Parsing-noise guard:** if 3+ distinct values collide on one `(metric, period, scope)`,
   it's treated as an artefact and **skipped** rather than reported as a contradiction.
 - **Column-reordering in footnote-formula tables** (e.g. a proforma statement where column D
-  is printed before column C) is a known, *unresolved* failure mode — flagged honestly in
+  is printed before column C) is a known, _unresolved_ failure mode — flagged honestly in
   `GET /api/cases?mode=benchmark` rather than claimed as solved.
+
+---
+
+## Workflow — how a PDF becomes reconciled knowledge
+
+The diagram in the next section shows the pipeline as boxes; here is the same journey in
+words, following a single number from a page all the way to a relationship card. Every stage
+is a separate, testable module (see _Component architecture_), and each one only ever hands
+the next a cleaner, more structured version of the same fact.
+
+1. **Ingest (`ingest.py`).** `POST /api/upload` (or the first-run auto-seed) hands the PDF to
+   PyMuPDF, which walks every page and emits _text lines with bounding boxes_ and detected
+   _table cells_. Each page is wrapped in its own `try/except`, so one broken page never
+   aborts the document; an optional `?max_pages=` caps the scan and the reply reports
+   `total_pages` / `pages_processed` / `is_truncated`.
+
+2. **Extract candidate facts (`extract.py`, optional `extract_llm.py`).** The heuristic
+   extractor — always on, offline — reads lines, captions, tables and period-column grids and
+   proposes _qualified facts_: `{ metric, value, unit, period, scope, evidence(page, bbox,
+quote) }`. If `GROQ_API_KEY` is set, an optional Groq pass proposes extra candidates from
+   messy prose. The LLM only ever _proposes_; it never classifies a relationship.
+
+3. **Ground every fact (`ground.py`).** The claimed number must actually appear in its cited
+   evidence span. Anything that fails is flagged **ungrounded** and kept out of reasoning.
+   This is the hallucination check — and it's why the UI can render a real source crop behind
+   every fact.
+
+4. **Normalize (`normalize.py`).** Raw strings like `₹(452) Cr`, `81,415.38 million`,
+   `FY2024-25`, `Q4 FY24`, `as on March 31 2024` become structured, comparable objects: a
+   `currency / mass / percent / count` **dimension** with the value in a common base (crore,
+   tonne, %), an **Indian-fiscal-aware period**, and a **scope** (basis / segment /
+   definition). **Two facts are only ever compared after this step** — that's what stops a
+   quarter being matched to a full year, or crore to million.
+
+5. **Store, incrementally (`db.py`).** Facts, relationships and page-text chunks are written
+   to SQLite (WAL mode). Documents de-duplicate by **content hash** and facts by a
+   **content-hashed id**, so re-uploading the exact same PDF changes nothing.
+
+6. **Reconcile — only what changed (`reconcile.py`).** Facts are grouped by `metric_key`, and
+   within each `(period, scope, unit)` cell the engine compares them mechanically: values
+   **agree → corroborate**; **disagree with nothing to explain it → contradict**; **differ on
+   exactly one dimension → reconciled**, naming it (`definition` / `period` / `basis` /
+   `unit` / `vintage`). Crucially, only the metric keys _this_ document touched are
+   re-reconciled — the rest of the graph is left untouched, which is what lets the layer scale
+   to many PDFs without an $O(N^2)$ rebuild.
+
+7. **Serve & explore (`main.py`, `evidence.py`, `rag.py`, frontend).** The result surfaces
+   five ways: **relationship cards** with evidence crops + plain-English reasoning; a **Vis.js
+   physics graph**; the **annotated-PDF viewer & download** with hover reasons; a
+   **searchable facts browser**; and the **Ask** tab (BM25 retrieval over the same page text,
+   answers cite `(document, page)`).
+
+You can watch this whole pipeline run: on a cold start the app seeds the six sample PDFs
+through exactly these steps, and the UI shows a **"Building the knowledge base… (n/6)"** bar
+until all six are in — after which the tally jumps to the full counts and every tab is live.
 
 ---
 
@@ -293,15 +351,18 @@ a fully working demo with real evidence crops — no separate step needed.
 
 Notes:
 
-- `--host 0.0.0.0` in the log is the *bind* address — always open **localhost**, not
+- `--host 0.0.0.0` in the log is the _bind_ address — always open **localhost**, not
   `0.0.0.0`, in the browser.
-- A console line like *"Consider using the pymupdf_layout package…"* is a harmless optional
+- A console line like _"Consider using the pymupdf_layout package…"_ is a harmless optional
   notice from PyMuPDF, not an error.
 
-> **Troubleshooting — evidence crops show as 404 / broken images:** your `knowledge.db` was
-> created empty by an older run. Stop the server, delete `backend\knowledge.db`, and run
-> `python main.py` again — it rebuilds the layer from the sample PDFs and the crops render.
-> (`knowledge.db` is disposable and git-ignored; it's always rebuilt from the PDFs.)
+> **Troubleshooting — evidence crops show as 404 / broken images, or the Facts tab is
+> empty:** your `knowledge.db` was created empty by an older run. Stop the server, delete
+> `backend/knowledge.db`, and run `python main.py` again — it rebuilds the layer from the
+> sample PDFs and everything renders. (`knowledge.db` is disposable and git-ignored; it's
+> always rebuilt from the PDFs.) A quick way to confirm the layer is real and not the
+> shipped fallback: open `/api/stats` — it should show `documents: 6`, `facts: 405`, and
+> **no** `"source": "sample"` field.
 >
 > **Troubleshooting — `sqlite3: unable to open database file`:** the project is in a
 > read-only/synced folder (OneDrive, Desktop, network drive). Move it to a plain local path
@@ -311,6 +372,15 @@ Notes:
 > resetting:** free-tier disks are usually ephemeral — `knowledge.db` gets wiped on every
 > restart/redeploy and rebuilt by auto-seed. If you need uploads to persist across deploys,
 > use the host's persistent-disk option; otherwise treat every restart as a fresh demo.
+
+### Deploy on a free host (Render)
+
+This repo includes a `render.yaml` blueprint. In Render: **New → Blueprint → connect this
+repo → Apply**. It sets the build to install deps **and pre-seed** the demo layer
+(`python seed_demo.py`), the start command to `uvicorn main:app --host 0.0.0.0 --port $PORT
+--app-dir backend`, and the health check to `/api/ready`. To enable the **Ask** tab in
+production, add `GROQ_API_KEY` under the service's **Environment** tab and redeploy; confirm
+at `/api/llm-status`.
 
 ### Optional: enable the Groq LLM extractor and the Ask chatbot
 
@@ -323,18 +393,18 @@ cp .env.example .env
 # GROQ_MODEL defaults to openai/gpt-oss-120b  (Groq free tier)
 ```
 
-Add `groq` to `requirements.txt` if it isn't already there (this project uses the plain
-`groq` SDK directly — no LangChain dependency, which avoids version-resolution conflicts on
-newer Python builds). Restart the server. The LLM only **proposes** facts during extraction;
-it never classifies relationships, and its output is grounded and cached exactly like the
-heuristic path. For Ask, a Groq rate-limit response trips a shared 60-second cooldown so
-extraction and Q&A don't hammer a throttled key back-to-back.
+Make sure `groq` is in `requirements.txt` (this project uses the plain `groq` SDK directly —
+no LangChain dependency, which avoids version-resolution conflicts on newer Python builds).
+Restart the server. The LLM only **proposes** facts during extraction; it never classifies
+relationships, and its output is grounded and cached exactly like the heuristic path. For
+Ask, a Groq rate-limit response trips a shared cooldown so extraction and Q&A don't hammer a
+throttled key back-to-back.
 
 ---
 
 ## Video demo
 
-**Demo video (≤ 3 min):** *[paste your Loom / YouTube link here]*
+**Demo video (≤ 3 min):** _[paste your Loom / YouTube link here]_
 
 A click-by-click narration is in **`DEMO_SCRIPT.md`**: the classification tally → the
 contradiction card with two evidence crops → the two EBITDA reconciliations (definition +
@@ -387,17 +457,17 @@ frontend/        index.html · style.css · app.js  (no build step, vanilla JS +
 ### Key decisions and trade-offs
 
 - **Reasoning is the product, not the graph.** The brief warns a graph DB or visualization
-  "alone is not the solution," so the effort goes into *grounding, comparison and
-  explanation* first. The relationship engine is **deterministic and explainable**; storage
-  is plain SQLite. The Vis.js graph and the Ask chatbot are *serving-layer* additions on top
+  "alone is not the solution," so the effort goes into _grounding, comparison and
+  explanation_ first. The relationship engine is **deterministic and explainable**; storage
+  is plain SQLite. The Vis.js graph and the Ask chatbot are _serving-layer_ additions on top
   of that reasoning, not a substitute for it — every edge in the graph and every citation
   in a chat answer traces back to the same grounded facts and page text.
-- **LLM proposes, rules decide.** LLMs are good at *finding* candidate numbers in prose but
+- **LLM proposes, rules decide.** LLMs are good at _finding_ candidate numbers in prose but
   unreliable at deciding whether two figures truly conflict. So the (optional) LLM only
   extracts; transparent rules classify — reproducible, and every edge is explainable.
 - **Retrieval before generation, always.** The Ask chatbot never answers from the model's
   own knowledge — it retrieves page-text chunks via BM25 first and only asks Groq to
-  summarize *those* excerpts with citations. If retrieval finds nothing, or Groq is
+  summarize _those_ excerpts with citations. If retrieval finds nothing, or Groq is
   unavailable, the UI says so instead of guessing.
 - **Grounding you can see.** Every fact stores page + bounding box; the UI re-opens the PDF
   and renders that exact region, so a reviewer verifies a number without trusting the model.
@@ -411,7 +481,7 @@ frontend/        index.html · style.css · app.js  (no build step, vanilla JS +
   instead of firing a false contradiction.
 - **Precision over recall in reasoning.** Hundreds of facts, but only well-typed level
   measurements enter reasoning; growth deltas and un-anchored integers are stored yet
-  excluded, and a genuine contradiction needs *exactly two* distinct values — yielding a
+  excluded, and a genuine contradiction needs _exactly two_ distinct values — yielding a
   small, high-signal relationship set instead of thousands of spurious edges.
 
 ### AI tools used
@@ -427,7 +497,7 @@ relationships, which stay fully rule-based.
 ## Why it generalizes (no hard-coding)
 
 - **No company names, filenames, or document-specific rules** in the extraction or
-  reconciliation logic. The *frame* of a fact is fixed; the *vocabulary* is discovered per
+  reconciliation logic. The _frame_ of a fact is fixed; the _vocabulary_ is discovered per
   document.
 - Any PDF at `POST /api/upload` flows through the same pipeline and merges into the same
   layer, and its text becomes searchable by the Ask chatbot immediately.
@@ -447,7 +517,7 @@ relationships, which stay fully rule-based.
   for the reasoning, drag nodes, scroll to zoom.
 - **Annotated documents:** pick a document to see its pages with colour-coded highlight
   boxes over every relationship-bearing fact; **hover** to read the reasoning and the
-  counterpart. **Download annotated PDF** exports the *real* source PDF with genuine
+  counterpart. **Download annotated PDF** exports the _real_ source PDF with genuine
   highlight annotations coloured by type and the reasoning embedded as each highlight's hover
   note (works in any PDF viewer).
 - **Facts:** searchable browser over every grounded fact.
@@ -458,20 +528,21 @@ relationships, which stay fully rule-based.
 
 ### REST API
 
-| Method & path                     | Purpose                                                            |
-| ---------------------------------- | ------------------------------------------------------------------ |
-| `POST /api/upload`                | Ingest a PDF (`?max_pages=` optional); extract → ground → store → reconcile incrementally |
-| `GET /api/status`                 | Progress of the most recent upload, including page-scan truncation info |
-| `GET /api/facts?metric_key=`      | All grounded facts (optionally by metric)                          |
-| `GET /api/relationships?type=`    | Reconciliation results, enriched with both facts                   |
+| Method & path                     | Purpose                                                                                      |
+| --------------------------------- | -------------------------------------------------------------------------------------------- |
+| `POST /api/upload`                | Ingest a PDF (`?max_pages=` optional); extract → ground → store → reconcile incrementally    |
+| `GET /api/status`                 | Progress of the most recent upload, including page-scan truncation info                      |
+| `GET /api/ready`                  | Readiness probe — `true` once the first-run seed has finished                                |
+| `GET /api/facts?metric_key=`      | All grounded facts (optionally by metric)                                                    |
+| `GET /api/relationships?type=`    | Reconciliation results, enriched with both facts                                             |
 | `GET /api/cases?mode=`            | The four required cases — `dynamic` (live from the graph) or `benchmark` (curated reference) |
-| `POST /api/ask`                   | Ask a question over ingested PDFs; BM25 retrieval + cited Groq answer |
-| `GET /api/stats`                  | Counts by relationship type                                        |
-| `GET /api/documents`              | Ingested documents                                                 |
-| `GET /api/evidence/{fact_id}`     | PNG crop of the source region behind a fact                        |
-| `GET /api/page/{doc_id}/{page}`   | Full page render (behind the annotation overlay)                   |
-| `GET /api/annotations/{doc_id}`   | Colour-coded boxes + reasons for a document's pages                |
-| `GET /api/annotated-pdf/{doc_id}` | Download the source PDF with real highlights + hover reasons       |
+| `POST /api/ask`                   | Ask a question over ingested PDFs; BM25 retrieval + cited Groq answer                        |
+| `GET /api/stats`                  | Counts by relationship type                                                                  |
+| `GET /api/documents`              | Ingested documents                                                                           |
+| `GET /api/evidence/{fact_id}`     | PNG crop of the source region behind a fact                                                  |
+| `GET /api/page/{doc_id}/{page}`   | Full page render (behind the annotation overlay)                                             |
+| `GET /api/annotations/{doc_id}`   | Colour-coded boxes + reasons for a document's pages                                          |
+| `GET /api/annotated-pdf/{doc_id}` | Download the source PDF with real highlights + hover reasons                                 |
 
 ---
 
@@ -485,10 +556,11 @@ python test_system.py
 ```
 
 **How it runs.** The script sets `KB_DB` to a throwaway path in your temp folder, imports
-the app (which **auto-seeds that isolated database** from `sample_pdfs/` — your real
-`knowledge.db` is never touched), then drives the live app with FastAPI's `TestClient` and
-calls the normalization / reconciliation functions directly. It runs across five suites,
-prints a per-check ✓/✗ report, and **exits non-zero on any failure** (so it can gate CI).
+the app and **auto-seeds that isolated database** from `sample_pdfs/` — your real
+`knowledge.db` is never touched — then drives the live app with FastAPI's `TestClient` and
+calls the normalization / reconciliation functions directly. It runs **34 checks across five
+suites**, prints a per-check ✓/✗ report, and **exits non-zero on any failure** (so it can
+gate CI).
 
 **What passes, and why it matters:**
 
@@ -508,21 +580,36 @@ prints a per-check ✓/✗ report, and **exits non-zero on any failure** (so it 
    the quoted evidence), all three relationship types are present, and reconciliations span
    multiple explanatory dimensions.
 
+**Result (from a clean run):**
+
+```text
+=== Suite 1 · REST API endpoints ===            ✓ 10/10
+=== Suite 2 · Financial number normalization === ✓ 11/11
+=== Suite 3 · Reconciler engine (four cases) === ✓  5/5
+=== Suite 4 · Incremental & de-duplication ===   ✓  4/4
+=== Suite 5 · Grounding & case coverage ===      ✓  4/4
+============================================================
+RESULT: 34/34 checks passed — ALL PASSED ✅
+============================================================
+```
+
 ---
 
-## Honest limitations — what doesn't work yet
+## Limitations and Next Steps
+
+Honest, per the brief — what doesn't work yet, and what we'd build next.
 
 - **Cross-wording entity matching (metric ontology).** We reconcile numbers when metric
-  *strings* align after normalization, but not yet when two documents name the same
-  real-world entity differently — e.g. the deck's *"Partner centers (constellation/BAs)"* vs
-  the annual report's *"Partner Delivery Centres."* Bridging these needs a light metric
+  _strings_ align after normalization, but not yet when two documents name the same
+  real-world entity differently — e.g. the deck's _"Partner centers (constellation/BAs)"_ vs
+  the annual report's _"Partner Delivery Centres."_ Bridging these needs a light metric
   ontology / embedding matcher; permissive string rules flood false matches and hard-coding
   the synonym would defeat the point. **This is the next thing to build**, and it would
   unlock more cross-document cases (e.g. the 939 vs 938 partner-centre count).
 - **Chart/image OCR.** Values living only inside a chart image with no adjacent text aren't
   extracted (PyMuPDF reads the text layer). A Tesseract/vision pre-pass would help.
 - **Textual, not semantic, grounding.** We verify the claimed number appears in the cited
-  region; we don't yet verify the surrounding sentence *means* what the metric label says.
+  region; we don't yet verify the surrounding sentence _means_ what the metric label says.
 - **Ask retrieval is lexical, not semantic.** BM25 matches on shared vocabulary; a question
   phrased very differently from the source text (heavy paraphrase, synonyms with no term
   overlap) may retrieve weaker context than an embeddings-based retriever would. No vector
@@ -543,8 +630,8 @@ on a zoomable PDF canvas.
 ## Additional notes
 
 - **Deterministic and reproducible.** The relationship set is exactly what the rules produce
-  from the facts — no benchmark answers, no curated ground truth. That honesty is what makes
-  it trustworthy on documents it has never seen.
+  from the facts — no benchmark answers baked into the live path, no curated ground truth.
+  That honesty is what makes it trustworthy on documents it has never seen.
 - **Runs without credentials.** The full experience — extraction, grounding, reconciliation,
   UI, graph view, annotated pages, and the downloadable highlighted PDF — works offline; Ask's
   retrieval also works offline. Groq generation is a bonus, not a dependency.
